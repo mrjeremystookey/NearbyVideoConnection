@@ -3,7 +3,7 @@
     package="android.stookey.com.nearbyvideoconnection">
 
     <uses-permission android:name="android.permission.CAMERA" />
-
+    <uses-feature android:name="android.hardware.camera.level.full"></uses-feature>
     <application>
         <uses-library android:name="com.google.android.things" />
 
