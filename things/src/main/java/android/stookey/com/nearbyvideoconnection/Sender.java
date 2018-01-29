@@ -10,6 +10,10 @@ import android.util.Log;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 
+import com.google.android.gms.nearby.Nearby;
+import com.google.android.gms.nearby.connection.ConnectionsClient;
+import com.google.android.gms.nearby.connection.DiscoveredEndpointInfo;
+import com.google.android.gms.nearby.connection.EndpointDiscoveryCallback;
 
 
 //Concept: using the flexibility of Android for embedded systems and mobile devices, one app written to stream video from a raspberry pi to a phone.
@@ -26,6 +30,21 @@ public class Sender extends Activity {
 
     private CameraHandler camera;
     private SurfaceView mSurface;
+
+    //Nearby
+    private ConnectionsClient connectionsClient;
+    private final EndpointDiscoveryCallback endpointDiscoveryCallback =
+            new EndpointDiscoveryCallback() {
+                @Override
+                public void onEndpointFound(String s, DiscoveredEndpointInfo discoveredEndpointInfo) {
+
+                }
+
+                @Override
+                public void onEndpointLost(String s) {
+
+                }
+            };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -54,6 +73,9 @@ public class Sender extends Activity {
                 Log.d(TAG, "surface destroyed");
             }
         });
+
+        connectionsClient = Nearby.getConnectionsClient(this);
+        connectionsClient.startAdvertising(TAG, getPackageName(), );
 
 
 
