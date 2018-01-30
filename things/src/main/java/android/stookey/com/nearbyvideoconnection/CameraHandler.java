@@ -29,74 +29,14 @@ import java.util.Collections;
  */
 
 public class CameraHandler {
-
-    /**Useful stuff:
-     * Camera API
-     * https://developer.android.com/reference/android/hardware/camera2/package-summary.html
-
-
-     **/
-
     private static final String TAG = "CameraHandler";
 
 
-    //Used for camera manipulation
-    private CameraDevice mCameraDevice;
-    private CameraCaptureSession mCameraCaptureSession;
+    //Camera
     private static String mCamID;
     private static SurfaceHolder mSurfaceHolder;
-
-    private MediaRecorder mMediaRecorder;
-
-
-    //Lazy Loaded Singleton ensures only one instance of camera is open at a time.
-    private CameraHandler(){
-
-    }
-    private static class InstanceHolder{
-        private static CameraHandler mCamera = new CameraHandler();
-    }
-    public static CameraHandler getInstance(){
-        Log.d(TAG, "camera object created");
-        return InstanceHolder.mCamera;
-
-    }
-
-
-
-
-    public void openCamera(Context context,
-                           Handler backgroundHandler,
-                           ImageReader.OnImageAvailableListener imageAvailableListener,
-                           SurfaceHolder holder){
-
-        Log.d(TAG, "beginning camera initialization");
-        mSurfaceHolder = holder;
-        try {
-            CameraManager manager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
-            String[] camIds = {};
-            camIds = manager.getCameraIdList();
-
-            //Get Camera Info
-            CameraCharacteristics chars = manager.getCameraCharacteristics(camIds[0]);
-            StreamConfigurationMap configs = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
-            Size[] mySizes = configs.getOutputSizes(SurfaceHolder.class);
-            //mySizes[0] = 320,240
-            //mySizes[1] = 640,480
-            Size mySize = mySizes[1];
-            Log.d(TAG, "width, height: " + mySize.getWidth()+", "+ mySize.getHeight());
-            holder.setFixedSize(mySize.getWidth(), mySize.getHeight());
-            mCamID = camIds[0];
-            manager.openCamera(mCamID, cameraOpenedCallback, backgroundHandler);
-
-        } catch (CameraAccessException e) {
-            Log.d(TAG, "Cam access exception: ", e);
-        }
-
-
-    }
-
-    //pops when camera is opened, or errors
+    private CameraDevice mCameraDevice;
+    private CameraCaptureSession mCameraCaptureSession;
     private final CameraDevice.StateCallback cameraOpenedCallback = new CameraDevice.StateCallback() {
         @Override
         public void onOpened(CameraDevice camera) {
@@ -125,33 +65,6 @@ public class CameraHandler {
             camera = null;
         }
     };
-
-
-
-
-
-
-
-
-
-    public void takePicture() {
-        Log.d(TAG, "takePicture called");
-        if (mCameraDevice == null) {
-            Log.w(TAG, "Cannot capture image. Camera not initialized.");
-            return;
-        }
-        try {
-            Log.d(TAG, "creating capture session");
-            mCameraDevice.createCaptureSession(
-                    Collections.singletonList(mSurfaceHolder.getSurface()),
-                    sessionConfigured,
-                    null);
-        } catch (CameraAccessException e) {
-            Log.d(TAG, "access exception while preparing video", e);
-        }
-    }
-
-    //pops when session is configured (and starts imagecapture), or fails
     private final CameraCaptureSession.StateCallback sessionConfigured = new CameraCaptureSession.StateCallback() {
         @Override
         public void onConfigured(CameraCaptureSession session) {
@@ -166,10 +79,88 @@ public class CameraHandler {
             Log.w(TAG, "Failed to configure the camera");
         }
     };
+    private final CameraCaptureSession.CaptureCallback captureCompleteCallback = new CameraCaptureSession.CaptureCallback(){
+        @Override
+        public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result) {
+            super.onCaptureCompleted(session, request, result);
+            if(mCameraCaptureSession != null){
+                mCameraCaptureSession.close();
+                mCameraCaptureSession = null;
+                Log.d(TAG, "CaptureSession Closed");
+            }
+        }
+        @Override
+        public void onCaptureProgressed( CameraCaptureSession session,  CaptureRequest request,  CaptureResult partialResult) {
+            super.onCaptureProgressed(session, request, partialResult);
+            Log.d(TAG, "Partial Result");
+        }
+        @Override
+        public void onCaptureFailed( CameraCaptureSession session,  CaptureRequest request,  CaptureFailure failure) {
+            super.onCaptureFailed(session, request, failure);
+            Log.d(TAG, "Capture Failed");
+        }
+    };
+
+
+    //Constructor
+    private CameraHandler(){}
+    private static class InstanceHolder{
+        private static CameraHandler mCamera = new CameraHandler();
+    }
+    public static CameraHandler getInstance(){
+        Log.d(TAG, "camera object created");
+        return InstanceHolder.mCamera;
+
+    }
+
+
+    //Methods
+
+
+    public void openCamera(Context context, Handler backgroundHandler, SurfaceHolder holder){
+
+        updateStatus("beginning camera initialization");
+        try {
+            //Retrieves the CameraID and opens the camera
+            CameraManager manager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
+            String[] camIds = {};
+            camIds = manager.getCameraIdList();
+            mSurfaceHolder = holder;
+            //Get Camera Info
+            CameraCharacteristics chars = manager.getCameraCharacteristics(camIds[0]);
+            StreamConfigurationMap configs = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+            Size[] mySizes = configs.getOutputSizes(SurfaceHolder.class);
+            //mySizes[0] = 320,240
+            //mySizes[1] = 640,480
+            Size mySize = mySizes[1];
+            Log.d(TAG, "width, height: " + mySize.getWidth()+", "+ mySize.getHeight());
+            mCamID = camIds[0];
+            manager.openCamera(mCamID, cameraOpenedCallback, backgroundHandler);
+        } catch (CameraAccessException e) {
+            Log.d(TAG, "Cam access exception: ", e);
+        }
+    }
+
+
+
+    public void takePicture() {
+        updateStatus("takePicture called");
+        if (mCameraDevice == null) {
+            Log.w(TAG, "Cannot capture image. Camera not initialized.");
+            return;
+        }
+        try {
+            updateStatus("creating capture session");
+            mCameraDevice.createCaptureSession(Collections.singletonList(mSurfaceHolder.getSurface()), sessionConfigured, null);
+
+        } catch (CameraAccessException e) {
+            Log.d(TAG, "access exception while preparing video", e);
+        }
+    }
 
 
     private void triggerImageCapture(){
-        Log.d(TAG, "starting image capture");
+        updateStatus("starting image capture");
         try {
             final CaptureRequest.Builder captureBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
             captureBuilder.addTarget(mSurfaceHolder.getSurface());
@@ -180,27 +171,6 @@ public class CameraHandler {
         }
     }
 
-    private final CameraCaptureSession.CaptureCallback captureCompleteCallback = new CameraCaptureSession.CaptureCallback(){
-                @Override
-                public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result) {
-                    super.onCaptureCompleted(session, request, result);
-                    if(mCameraCaptureSession != null){
-                        mCameraCaptureSession.close();
-                        mCameraCaptureSession = null;
-                        Log.d(TAG, "CaptureSession Closed");
-                    }
-                }
-                @Override
-                public void onCaptureProgressed( CameraCaptureSession session,  CaptureRequest request,  CaptureResult partialResult) {
-                    super.onCaptureProgressed(session, request, partialResult);
-                    Log.d(TAG, "Partial Result");
-                }
-                @Override
-                public void onCaptureFailed( CameraCaptureSession session,  CaptureRequest request,  CaptureFailure failure) {
-                    super.onCaptureFailed(session, request, failure);
-                    Log.d(TAG, "Capture Failed");
-                }
-            };
 
 
     public void shutDown(){
@@ -208,5 +178,9 @@ public class CameraHandler {
             mCameraDevice.close();
             mCameraDevice = null;
         }
+    }
+
+    private void updateStatus(String string){
+        Log.d(TAG, string);
     }
 }
