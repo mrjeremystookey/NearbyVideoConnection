@@ -1,7 +1,6 @@
 package android.stookey.com.nearbyvideoconnection;
 
 import android.content.Context;
-import android.graphics.Camera;
 import android.graphics.ImageFormat;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCaptureSession;
@@ -12,15 +11,12 @@ import android.hardware.camera2.CaptureFailure;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.CaptureResult;
 import android.hardware.camera2.TotalCaptureResult;
-import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.ImageReader;
 import android.media.MediaRecorder;
 import android.os.Handler;
+import android.support.annotation.NonNull;
 import android.util.Log;
 import android.util.Size;
-import android.view.Surface;
-import android.view.SurfaceHolder;
-import android.view.SurfaceView;
 
 import java.util.Collections;
 
@@ -32,28 +28,31 @@ public class CameraHandler {
     private static final String TAG = "CameraHandler";
 
 
+
+
     //Camera
     private static String mCamID;
-    private static SurfaceHolder mSurfaceHolder;
     private CameraDevice mCameraDevice;
+    private CaptureRequest.Builder mCaptureRequestBuilder;
     private CameraCaptureSession mCameraCaptureSession;
     private final CameraDevice.StateCallback cameraOpenedCallback = new CameraDevice.StateCallback() {
         @Override
         public void onOpened(CameraDevice camera) {
             mCameraDevice = camera;
-            Log.d(TAG, "Camera opened, initialization complete");
+            setupRecorder();
+            updateStatus("Camera opened");
         }
 
         @Override
         public void onDisconnected(CameraDevice camera) {
-            Log.d(TAG, "Camera Disconnected, closing");
+            updateStatus("Camera disconnected, closing");
             camera.close();
             mCameraDevice = null;
         }
 
         @Override
         public void onError(CameraDevice camera, int error) {
-            Log.d(TAG, "Camera device error, closing");
+            updateStatus("Camera device error, closing");
             camera.close();
             mCameraDevice = null;
         }
@@ -61,34 +60,40 @@ public class CameraHandler {
         @Override
         public void onClosed(CameraDevice camera) {
             super.onClosed(camera);
-            Log.d(TAG, "Closed camera, releasing");
+            updateStatus("Camera closed");
             camera = null;
         }
     };
-    private final CameraCaptureSession.StateCallback sessionConfigured = new CameraCaptureSession.StateCallback() {
+    private final CameraCaptureSession.StateCallback sessionConfiguredCallback = new CameraCaptureSession.StateCallback() {
         @Override
         public void onConfigured(CameraCaptureSession session) {
-            if(mCameraDevice == null)
-                return;
             mCameraCaptureSession = session;
-            Log.d(TAG, "capture session created");
-            triggerImageCapture();
+            updateStatus("capture session created");
+            setupCaptureRequest();
         }
         @Override
         public void onConfigureFailed(CameraCaptureSession session) {
-            Log.w(TAG, "Failed to configure the camera");
+            updateStatus("failed to configure the capture session");
         }
     };
     private final CameraCaptureSession.CaptureCallback captureCompleteCallback = new CameraCaptureSession.CaptureCallback(){
         @Override
         public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result) {
+            updateStatus("image capture complete");
             super.onCaptureCompleted(session, request, result);
             if(mCameraCaptureSession != null){
                 mCameraCaptureSession.close();
                 mCameraCaptureSession = null;
-                Log.d(TAG, "CaptureSession Closed");
+                updateStatus("capture session closed");
             }
         }
+
+        @Override
+        public void onCaptureStarted(@NonNull CameraCaptureSession session, @NonNull CaptureRequest request, long timestamp, long frameNumber) {
+            super.onCaptureStarted(session, request, timestamp, frameNumber);
+            updateStatus("image capture started");
+        }
+
         @Override
         public void onCaptureProgressed( CameraCaptureSession session,  CaptureRequest request,  CaptureResult partialResult) {
             super.onCaptureProgressed(session, request, partialResult);
@@ -97,9 +102,18 @@ public class CameraHandler {
         @Override
         public void onCaptureFailed( CameraCaptureSession session,  CaptureRequest request,  CaptureFailure failure) {
             super.onCaptureFailed(session, request, failure);
-            Log.d(TAG, "Capture Failed");
+            Log.d(TAG, "capture failed");
         }
     };
+
+
+    //Recorder
+    private static MediaRecorder mMediaRecorder = new MediaRecorder();
+    private static Size mPreviewSize;
+
+    //ImageReader
+    private static final int MAX_IMAGES = 1;
+    private ImageReader mImageReader;
 
 
     //Constructor
@@ -114,69 +128,96 @@ public class CameraHandler {
     }
 
 
+
     //Methods
-
-
-    public void openCamera(Context context, Handler backgroundHandler, SurfaceHolder holder){
-
-        updateStatus("beginning camera initialization");
+    public void openCamera(Context context, Handler handler, int width, int height, ImageReader.OnImageAvailableListener imageAvailableListener){
+        CameraManager manager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
         try {
-            //Retrieves the CameraID and opens the camera
-            CameraManager manager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
-            String[] camIds = {};
-            camIds = manager.getCameraIdList();
-            mSurfaceHolder = holder;
-            //Get Camera Info
-            CameraCharacteristics chars = manager.getCameraCharacteristics(camIds[0]);
-            StreamConfigurationMap configs = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
-            Size[] mySizes = configs.getOutputSizes(SurfaceHolder.class);
-            //mySizes[0] = 320,240
-            //mySizes[1] = 640,480
-            Size mySize = mySizes[1];
-            Log.d(TAG, "width, height: " + mySize.getWidth()+", "+ mySize.getHeight());
-            mCamID = camIds[0];
-            manager.openCamera(mCamID, cameraOpenedCallback, backgroundHandler);
+            for(String cameraID : manager.getCameraIdList()){
+                CameraCharacteristics cameraCharacteristics = manager.getCameraCharacteristics(cameraID);
+                updateStatus("Camera Characteristics: " + cameraCharacteristics.toString());
+                if(manager.getCameraIdList().length == 1){
+                    mCamID = cameraID;
+                    mPreviewSize = new Size(width, height);
+                    mImageReader = ImageReader.newInstance(mPreviewSize.getWidth(), mPreviewSize.getHeight(), ImageFormat.JPEG, MAX_IMAGES);
+                    mImageReader.setOnImageAvailableListener(imageAvailableListener, handler);
+                    connectCamera(context, handler);
+                } else{
+                    updateStatus("multiple cameras found");
+                }
+            }
         } catch (CameraAccessException e) {
-            Log.d(TAG, "Cam access exception: ", e);
+            e.printStackTrace();
         }
     }
 
+    private void connectCamera(Context context, Handler handler){
+        updateStatus("connecting to the camera...");
+        CameraManager cameraManager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
+        try {
+            cameraManager.openCamera(mCamID, cameraOpenedCallback, handler);
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+        }
+    }
 
+    //Todo finish setting up Recorder
+    private void setupRecorder() {
+        updateStatus("Configuring recorder...");
+        mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
+        mMediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+        //mMediaRecorder.setOutputFile();
+        //mMediaRecorder.setVideoSize(recorderSize.getWidth(), recorderSize.getHeight());
+//      mMediaRecorder.setVideoEncodingBitRate();
+          setupCaptureSession();
+    }
 
-    public void takePicture() {
-        updateStatus("takePicture called");
-        if (mCameraDevice == null) {
-            Log.w(TAG, "Cannot capture image. Camera not initialized.");
+    private void setupCaptureSession(){
+        if(mCameraDevice == null){
+            updateStatus("Cannot capture image. Camera not initialized");
             return;
         }
         try {
             updateStatus("creating capture session");
-            mCameraDevice.createCaptureSession(Collections.singletonList(mSurfaceHolder.getSurface()), sessionConfigured, null);
-
+            mCameraDevice.createCaptureSession(Collections.singletonList(
+                    mImageReader.getSurface()),
+                    sessionConfiguredCallback,
+                    null);
         } catch (CameraAccessException e) {
-            Log.d(TAG, "access exception while preparing video", e);
+            e.printStackTrace();
         }
     }
 
-
-    private void triggerImageCapture(){
-        updateStatus("starting image capture");
+    private void setupCaptureRequest(){
         try {
-            final CaptureRequest.Builder captureBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-            captureBuilder.addTarget(mSurfaceHolder.getSurface());
-            captureBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON);
-            mCameraCaptureSession.setRepeatingRequest(captureBuilder.build(), captureCompleteCallback, null);
+            updateStatus("creating capture request");
+            mCaptureRequestBuilder = mCameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
+            mCaptureRequestBuilder.addTarget(mImageReader.getSurface());
+            mCaptureRequestBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON);
+            startCapture();
         } catch (CameraAccessException e) {
-            Log.d(TAG, "camera capture exception: ",e);
+            e.printStackTrace();
         }
+
     }
 
-
+    private void startCapture(){
+        try {
+            updateStatus("starting image capture...");
+            mCameraCaptureSession.setRepeatingRequest(mCaptureRequestBuilder.build(), captureCompleteCallback, null);
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+        }
+    }
 
     public void shutDown(){
         if(mCameraDevice != null){
             mCameraDevice.close();
             mCameraDevice = null;
+        }
+        if(mCameraCaptureSession != null) {
+            mCameraCaptureSession.close();
+            mCameraCaptureSession = null;
         }
     }
 

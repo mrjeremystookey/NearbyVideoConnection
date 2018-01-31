@@ -1,5 +1,6 @@
 package android.stookey.com.nearbyvideoconnection;
 
+import android.Manifest;
 import android.app.Activity;
 import android.graphics.SurfaceTexture;
 import android.media.Image;
@@ -7,6 +8,7 @@ import android.media.ImageReader;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.support.annotation.NonNull;
 import android.util.Log;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
@@ -22,6 +24,10 @@ import com.google.android.gms.nearby.connection.Payload;
 import com.google.android.gms.nearby.connection.PayloadCallback;
 import com.google.android.gms.nearby.connection.PayloadTransferUpdate;
 import com.google.android.gms.nearby.connection.Strategy;
+import com.google.android.gms.tasks.OnFailureListener;
+import com.google.android.gms.tasks.OnSuccessListener;
+
+import java.nio.ByteBuffer;
 
 
 //Concept: using the flexibility of Android for embedded systems and mobile devices, one app written to stream video from a raspberry pi to a phone.
@@ -37,12 +43,6 @@ public class Sender extends Activity {
     private Handler mCameraHandler;
     private HandlerThread cameraThread;
     private CameraHandler camera;
-
-    //Preview
-    private SurfaceView mSurfaceView;
-    private SurfaceHolder mHolder;
-
-
 
 
     //Nearby
@@ -71,7 +71,7 @@ public class Sender extends Activity {
                 @Override
                 public void onPayloadReceived(String s, Payload payload) {
                     Log.i(TAG, "onPayloadReceived(String s, Payload payload): payload received");
-                    //Check for SurfaceSize Payload, if so, initialize openCamera(width, height)
+                    //Check for SurfaceSize Payload, if so, initialize openCamera(context,handler,width, height)
                 }
 
                 @Override
@@ -80,54 +80,52 @@ public class Sender extends Activity {
                 }
             };
 
+    //Image Handling
+    private ImageReader.OnImageAvailableListener onImageAvailableListener = new ImageReader.OnImageAvailableListener() {
+        @Override
+        public void onImageAvailable(ImageReader reader) {
+                  updateStatus("New Image Available");
+                  Image image = reader.acquireLatestImage();
+                  //get image bytes
+            ByteBuffer imageBuffer = image.getPlanes()[0].getBuffer();
+            final byte[] imageBytes = new byte[imageBuffer.remaining()];
+            //Todo Send to do Discoverer via Payload
+        }
+    };
 
-    //Image
-    private SurfaceHolder.Callback mSurfaceHolderCallBack = new SurfaceHolder.Callback() {
-                @Override
-                public void surfaceCreated(SurfaceHolder holder) {
-                    startAdvertising();
-                    //set Holder size to size of SurfacePreview from Payload
-                    camera.openCamera(getBaseContext(), mCameraHandler, holder);
-                }
-
-                @Override
-                public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-
-                }
-
-                @Override
-                public void surfaceDestroyed(SurfaceHolder holder) {
-
-                }
-            };
 
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_sender);
         startBackgroundThread();
-        startDisplay();
         init();
     }
 
     private void init(){
         camera = CameraHandler.getInstance();
         connectionsClient = Nearby.getConnectionsClient(this);
+        camera.openCamera(this, mCameraHandler, 640, 480, onImageAvailableListener);
     }
 
 
-    private void startDisplay(){
-        updateStatus("starting display initialization");
-        mSurfaceView = (SurfaceView) findViewById(R.id.surfaceView);
-        mHolder = mSurfaceView.getHolder();
-        mHolder.addCallback(mSurfaceHolderCallBack);
-    }
 
     private void startAdvertising(){
         updateStatus("startAdvertising(): starting advertising...");
         connectionsClient.startAdvertising("Rover", SERVICE_ID,
-                connectionLifecycleCallback, new AdvertisingOptions(Strategy.P2P_CLUSTER));
+                connectionLifecycleCallback, new AdvertisingOptions(Strategy.P2P_CLUSTER)).addOnSuccessListener(new OnSuccessListener<Void>() {
+            @Override
+            public void onSuccess(Void aVoid) {
+                updateStatus("We are advertising");
+            }
+        }).addOnFailureListener(new OnFailureListener() {
+            @Override
+            public void onFailure(@NonNull Exception e) {
+                updateStatus("Failed to start Advertising");
+            }
+        });
     }
 
     private void startBackgroundThread(){
